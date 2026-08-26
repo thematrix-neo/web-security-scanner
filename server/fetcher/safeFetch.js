@@ -59,6 +59,12 @@ function requestOnce(url, pinned) {
         path: url.pathname + url.search,
         method: "GET",
         headers: { "user-agent": USER_AGENT, host: url.host },
+        // Deliberate: we inspect certificates rather than trust them.
+        // Aborting here would make broken-TLS sites unscannable — exactly
+        // the sites worth scanning. The validation result is reported via
+        // socket.authorized instead. Compensating control: we never follow
+        // a redirect from an unauthorized connection (see safeFetch).
+        rejectUnauthorized: false,
         // The pin. Node would otherwise resolve the hostname again here,
         // giving a hostile DNS server a second chance to answer differently.
         lookup: (_hostname, options, callback) => {
@@ -118,7 +124,9 @@ function captureTls(socket) {
     protocol: socket.getProtocol(),
     cipher: socket.getCipher()?.name ?? null,
     authorized: socket.authorized,
-    authorizationError: socket.authorizationError?.message ?? null,
+    authorizationError: socket.authorizationError
+      ? socket.authorizationError.message ?? String(socket.authorizationError)
+      : null,
     subject: cert?.subject?.CN ?? null,
     issuer: cert?.issuer?.O ?? null,
     validFrom: cert?.valid_from ?? null,
@@ -143,6 +151,13 @@ export async function safeFetch(input) {
       peer: res.peer,
       tls: res.tls,
     });
+
+    // If the certificate didn't validate, nothing on that connection is
+    // trustworthy — including the Location header. Report what we saw and
+    // stop, rather than following a redirect an attacker may control.
+    if (res.tls && !res.tls.authorized) {
+      return { finalUrl: url.href, chain, response: chain.at(-1), body: res.body };
+    }
 
     const isRedirect = res.status >= 300 && res.status < 400;
     const location = res.headers.location;
