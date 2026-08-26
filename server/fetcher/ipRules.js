@@ -1,6 +1,5 @@
 import net from "node:net";
 
-// [base address, prefix length, human-readable reason]
 const V4_BLOCKED = [
   ["0.0.0.0", 8, "unspecified / this-network range"],
   ["10.0.0.0", 8, "private network (RFC1918)"],
@@ -21,12 +20,19 @@ const V4_BLOCKED = [
 const V6_BLOCKED = [
   ["::", 128, "unspecified address"],
   ["::1", 128, "loopback"],
-  ["64:ff9b::", 96, "NAT64 translation range"],
   ["100::", 64, "discard-only range"],
   ["2001:db8::", 32, "documentation range"],
   ["fc00::", 7, "unique local address"],
   ["fe80::", 10, "link-local"],
   ["ff00::", 8, "multicast"],
+];
+
+// Ranges that wrap an IPv4 address in the low 32 bits. Unwrap and apply
+// the IPv4 rules — otherwise ::ffff:127.0.0.1 and 64:ff9b::7f00:1 both
+// walk straight past every IPv6 check.
+const V6_V4_EMBEDDED = [
+  ["::ffff:0:0", 96, "IPv4-mapped"],
+  ["64:ff9b::", 96, "NAT64"],
 ];
 
 function ipv4ToBigInt(ip) {
@@ -41,7 +47,6 @@ function ipv6ToBigInt(ip) {
   const zone = s.indexOf("%");
   if (zone !== -1) s = s.slice(0, zone);
 
-  // Rewrite a trailing dotted-quad (::ffff:1.2.3.4) into hex groups.
   const embedded = s.match(/(\d+\.\d+\.\d+\.\d+)$/);
   if (embedded) {
     const v4 = ipv4ToBigInt(embedded[1]);
@@ -94,10 +99,13 @@ export function classifyIp(ip) {
   if (net.isIPv6(ip)) {
     const value = ipv6ToBigInt(ip);
 
-    // IPv4-mapped (::ffff:a.b.c.d) — unwrap and apply the IPv4 rules,
-    // otherwise ::ffff:127.0.0.1 slips straight past every v6 check.
-    if (inRange(value, ipv6ToBigInt("::ffff:0:0"), 96, 128)) {
-      return classifyV4(value & 0xffffffffn);
+    for (const [base, prefix, label] of V6_V4_EMBEDDED) {
+      if (inRange(value, ipv6ToBigInt(base), prefix, 128)) {
+        const verdict = classifyV4(value & 0xffffffffn);
+        return verdict.allowed
+          ? verdict
+          : { allowed: false, reason: `${verdict.reason} via ${label}` };
+      }
     }
 
     for (const [base, prefix, reason] of V6_BLOCKED) {
