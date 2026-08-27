@@ -36,21 +36,19 @@ export default function App() {
     }
   }
 
+  const hasScanned = Boolean(loading || result || error);
+
   return (
-    <main className="app">
+    <main className={`app ${hasScanned ? "app-active" : "app-idle"}`}>
       <header className="masthead">
         <h1>Web Security Scanner</h1>
-        <p className="sub">
-          Passive assessment of TLS, security headers, and cookie configuration.
-          Fetches the URL once — no active probing.
-        </p>
       </header>
 
       <div className="row">
         <input
           type="text"
           value={url}
-          placeholder="https://example.com"
+          placeholder="Enter URL"
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && url && !loading && runScan()}
         />
