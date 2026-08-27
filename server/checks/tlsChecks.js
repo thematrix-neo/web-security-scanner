@@ -1,4 +1,23 @@
-const EXPIRY_WARN_DAYS = 30;
+// A fixed threshold ages badly. Maximum certificate lifetimes are being
+// phased down (200 days from 2026, 100 from 2027, 47 from 2029), so a flat
+// 30-day warning would eventually fire on nearly every healthy certificate.
+// Warn on a proportion of the certificate's own lifetime instead, bounded.
+const EXPIRY_WARN_FRACTION = 0.2;
+const EXPIRY_WARN_MIN_DAYS = 7;
+const EXPIRY_WARN_MAX_DAYS = 30;
+
+function warnThresholdDays(validFrom, validTo) {
+  const from = validFrom ? new Date(validFrom) : null;
+  const to = validTo ? new Date(validTo) : null;
+  if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return EXPIRY_WARN_MAX_DAYS;
+  }
+  const lifetimeDays = (to - from) / 86_400_000;
+  return Math.min(
+    EXPIRY_WARN_MAX_DAYS,
+    Math.max(EXPIRY_WARN_MIN_DAYS, Math.round(lifetimeDays * EXPIRY_WARN_FRACTION))
+  );
+}
 const WEAK_PROTOCOLS = ["TLSv1", "TLSv1.1", "SSLv3"];
 
 export function checkTls(chain) {
@@ -53,6 +72,7 @@ export function checkTls(chain) {
   const expiry = tls.validTo ? new Date(tls.validTo) : null;
   if (expiry && !Number.isNaN(expiry.getTime())) {
     const daysLeft = Math.floor((expiry - Date.now()) / 86_400_000);
+    const warnAt = warnThresholdDays(tls.validFrom, tls.validTo);
 
     if (daysLeft < 0) {
       findings.push({
@@ -64,7 +84,7 @@ export function checkTls(chain) {
         fix: "Renew the certificate and automate renewal so it cannot lapse again.",
         detail: `Expired ${Math.abs(daysLeft)} day(s) ago (${tls.validTo})`,
       });
-    } else if (daysLeft < EXPIRY_WARN_DAYS) {
+    } else if (daysLeft < warnAt) {
       findings.push({
         id: "cert-expiry",
         title: "Certificate not expired",
@@ -72,7 +92,7 @@ export function checkTls(chain) {
         status: "fail",
         why: "The certificate expires soon. Manual renewal is a common cause of unplanned outages.",
         fix: "Renew now and automate renewal.",
-        detail: `Expires in ${daysLeft} day(s) (${tls.validTo})`,
+        detail: `Expires in ${daysLeft} day(s) — under the ${warnAt}-day threshold for a certificate of this lifetime (${tls.validTo})`,
       });
     } else {
       findings.push({

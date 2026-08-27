@@ -76,12 +76,15 @@ export function checkCookies(chain) {
   }
 
   const noSecure = cookies.filter((c) => !c.secure);
+  const sessionNoSecure = noSecure.filter((c) => c.looksLikeSession);
   findings.push(
     noSecure.length > 0
       ? {
           id: "cookie-secure",
           title: "Cookies marked Secure",
-          severity: "high",
+          // Same reasoning as HttpOnly: a session cookie sent in clear is an
+          // account-takeover path; an analytics cookie is untidy.
+          severity: sessionNoSecure.length > 0 ? "high" : "medium",
           status: "fail",
           why: "Without Secure, the browser will send the cookie over plain HTTP, where it can be read in transit.",
           fix: "Add the Secure attribute to every cookie.",
