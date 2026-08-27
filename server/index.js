@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { handleScan } from "./api/scan.js";
+import { rateLimit, concurrencyGate } from "./api/rateLimit.js";
 
 const app = express();
 app.use(cors());
@@ -10,6 +11,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.post("/api/scan", handleScan);
+app.post("/api/scan", rateLimit, concurrencyGate, handleScan);
 
 app.listen(3001, () => console.log("Server on http://localhost:3001"));

@@ -4,9 +4,16 @@ import { checkSecurityHeaders } from "../checks/securityHeaders.js";
 import { checkTls } from "../checks/tlsChecks.js";
 import { checkCookies } from "../checks/cookieChecks.js";
 import { scoreScan } from "../scoring/score.js";
+import { cacheKey, getCached, setCached } from "./cache.js";
 
 export async function handleScan(req, res) {
   const { url } = req.body ?? {};
+
+  const key = cacheKey(url);
+  const hit = getCached(key);
+  if (hit) {
+    return res.json({ ...hit, cached: true });
+  }
 
   try {
     const result = await safeFetch(url);
@@ -20,7 +27,7 @@ export async function handleScan(req, res) {
 
     const scored = scoreScan(categorized);
 
-    res.json({
+    const payload = {
       target: result.finalUrl,
       redirectHops: result.chain.length,
       scannedAt: new Date().toISOString(),
@@ -29,7 +36,10 @@ export async function handleScan(req, res) {
       gates: scored.gates,
       breakdown: scored.breakdown,
       categories: categorized,
-    });
+    };
+
+    setCached(key, payload);
+    res.json({ ...payload, cached: false });
   } catch (err) {
     if (err instanceof UrlValidationError || err instanceof FetchError) {
       return res.status(400).json({ error: err.message });
