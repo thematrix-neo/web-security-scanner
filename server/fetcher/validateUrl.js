@@ -13,9 +13,16 @@ export function validateUrl(input) {
     throw new UrlValidationError("URL is required");
   }
 
+  // A bare domain is not a URL, but it is what people type. Prepend a scheme
+  // only when there is no "scheme://" prefix at all — anything declaring a
+  // scheme keeps it and faces the allowlist below. Default to https: guessing
+  // the insecure option would be wrong for a transport-security tool.
+  const raw = input.trim();
+  const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw);
+  const candidate = hasScheme ? raw : `https://${raw}`;
   let url;
   try {
-    url = new URL(input.trim());
+    url = new URL(candidate);
   } catch {
     throw new UrlValidationError("Not a valid URL");
   }
